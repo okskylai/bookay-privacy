@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bookay 約好登入碼</title>
+  <style>
+    :root { color-scheme: light; }
+    body {
+      margin: 0;
+      font-family: "PingFang HK", "Noto Sans TC", sans-serif;
+      background: #fafaf9;
+      color: #1c1917;
+    }
+    main {
+      max-width: 28rem;
+      margin: 0 auto;
+      padding: 2.5rem 1.25rem 3rem;
+    }
+    h1 { font-size: 1.5rem; margin: 0 0 0.5rem; }
+    p { line-height: 1.6; }
+    code {
+      display: block;
+      margin: 1.25rem 0;
+      padding: 1rem;
+      background: #fff;
+      border: 1px solid #e7e5e4;
+      border-radius: 12px;
+      word-break: break-all;
+      font-size: 0.95rem;
+    }
+    button {
+      width: 100%;
+      border: 0;
+      border-radius: 12px;
+      padding: 0.9rem 1rem;
+      background: #7f1d1d;
+      color: #fff;
+      font-size: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>登入碼</h1>
+    <p id="lead">正在讀取登入碼。</p>
+    <code id="code" hidden></code>
+    <button id="copy" hidden type="button">複製登入碼</button>
+  </main>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const code = params.get("code");
+    const lead = document.getElementById("lead");
+    const box = document.getElementById("code");
+    const copy = document.getElementById("copy");
+    if (!code) {
+      lead.textContent = "這個連結沒有登入碼。請回到 App，再寄一次新郵件，然後點最新那封。";
+    } else {
+      lead.textContent = "複製下面的登入碼，貼回約好 App，然後按登入。";
+      box.hidden = false;
+      box.textContent = code;
+      copy.hidden = false;
+      copy.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(code);
+          copy.textContent = "已複製";
+        } catch {
+          copy.textContent = "請長按上面的碼再複製";
+        }
+      });
+    }
+  </script>
+</body>
+</html>
