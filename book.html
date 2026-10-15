@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>預約</title>
+  <meta name="theme-color" content="#8E3B4E">
+  <style>
+    :root {
+      --brand: #8E3B4E;
+      --brand-dark: #5A2331;
+      --ink: #2B1F24;
+      --muted: #6E5F64;
+      --line: #E8DFDB;
+      --bg: #FBF7F4;
+      --surface: #fff;
+      --bad: #A8261C;
+      --bad-bg: #FBE8E6;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 16px/1.5 "PingFang HK", "Noto Sans HK", "Heiti TC", sans-serif;
+    }
+    main { max-width: 32rem; margin: 0 auto; padding: 1.25rem 1rem 3rem; }
+    .eyebrow { margin: 0; color: var(--brand); font-size: .8rem; letter-spacing: .08em; }
+    h1 { margin: .2rem 0 .35rem; font-size: 1.7rem; }
+    h2 { margin: 0 0 .7rem; font-size: 1.05rem; }
+    .steps { display: flex; gap: .35rem; margin: .75rem 0 1rem; }
+    .steps i { height: .28rem; flex: 1; border-radius: 99px; background: #EFD5D1; }
+    .steps i.on { background: var(--brand); }
+    #error {
+      background: var(--bad-bg);
+      color: var(--bad);
+      border-radius: .75rem;
+      padding: .75rem 1rem;
+      margin-bottom: .75rem;
+    }
+    button, .choice, .payme {
+      font: inherit;
+      cursor: pointer;
+    }
+    .choice, .time, .primary, .ghost, .payme {
+      border: 0;
+      border-radius: .9rem;
+    }
+    .choice, .time {
+      background: var(--surface);
+      color: var(--ink);
+      text-align: left;
+      box-shadow: 0 1px 0 var(--line);
+    }
+    .choice { display: block; width: 100%; padding: .9rem 1rem; margin: 0 0 .6rem; }
+    .choice:active, .time:active { background: #F7E9E6; }
+    .choice-title { display: block; font-weight: 650; }
+    .choice-detail { display: block; color: var(--muted); font-size: .9rem; margin-top: .15rem; }
+    .times { display: flex; flex-wrap: wrap; gap: .5rem; }
+    .time { padding: .75rem .9rem; min-width: 5.2rem; text-align: center; font-weight: 650; }
+    label { display: block; margin: .8rem 0 .3rem; font-weight: 650; }
+    input[type="text"], input[type="tel"] {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: .8rem;
+      padding: .8rem .9rem;
+      font: inherit;
+      background: var(--surface);
+      color: var(--ink);
+    }
+    .consent { display: flex; gap: .6rem; align-items: flex-start; margin: 1rem 0; font-weight: 400; }
+    .consent input { margin-top: .25rem; }
+    .note { color: var(--muted); font-size: .92rem; }
+    .primary, .ghost, .payme { display: block; width: 100%; padding: .9rem 1rem; text-align: center; text-decoration: none; }
+    .primary { background: var(--brand); color: white; font-weight: 700; }
+    .primary:disabled { opacity: .55; }
+    .ghost { margin-top: .7rem; background: transparent; color: var(--brand-dark); }
+    .back { background: none; border: 0; color: var(--muted); padding: 0 0 .8rem; }
+    .hold { font-size: 1.55rem; font-weight: 750; margin: .2rem 0 .4rem; }
+    .summary { margin: .15rem 0; }
+    .amount { font-size: 1.15rem; font-weight: 700; margin: 1rem 0 .4rem; }
+    .pay { background: var(--surface); border-radius: 1rem; padding: 1rem; margin: 0 0 .7rem; }
+    .pay h2 { margin: 0; font-size: 1rem; }
+    .account { margin: .25rem 0 .6rem; color: var(--muted); }
+    .qr { width: min(100%, 16rem); height: auto; display: block; margin: .4rem auto; background: white; }
+    .payme { background: #DB0011; color: white; font-weight: 700; }
+    .status { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">約好</p>
+    <h1 id="studio">預約</h1>
+    <div class="steps" id="steps" aria-hidden="true"></div>
+    <p id="error" hidden></p>
+    <div id="panel"><p class="status">讀緊…</p></div>
+  </main>
+  <script>
+    const SLUG = "mia-demo";
+    const ENDPOINT = "https://zestnbliczkknlilwpys.supabase.co/functions/v1/web-booking";
+    const APIKEY = "sb_publishable_46ALYE5c1xVhxqbnrxOQkQ_osDKpNux";
+    const FALLBACK_PRIVACY = "https://okskylai.github.io/bookay-privacy/";
+    const titles = ["揀服務", "揀技師", "揀日期", "揀時間", "你的資料"];
+    const state = { step: 0, catalog: null, service: null, staff: "any", date: null, start: null, busy: false };
+    let renderId = 0;
+    const studioEl = document.getElementById("studio");
+    const stepsEl = document.getElementById("steps");
+    const errorEl = document.getElementById("error");
+    const panel = document.getElementById("panel");
+
+    function el(tag, className, text) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text != null) node.textContent = text;
+      return node;
+    }
+
+    function showError(message) {
+      errorEl.hidden = !message;
+      errorEl.textContent = message || "";
+    }
+
+    async function post(body) {
+      const response = await fetch(ENDPOINT, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: APIKEY,
+          Authorization: "Bearer " + APIKEY,
+        },
+        body: JSON.stringify(Object.assign({ slug: SLUG }, body)),
+      });
+      let data = {};
+      try { data = await response.json(); } catch (_error) { data = {}; }
+      if (!response.ok || data.error) throw new Error(data.error || "請再試一次");
+      return data;
+    }
+
+    function paintSteps() {
+      stepsEl.replaceChildren();
+      titles.forEach(function (_title, index) {
+        const mark = el("i");
+        if (index <= state.step) mark.className = "on";
+        stepsEl.append(mark);
+      });
+    }
+
+    function choice(title, detail, onpick) {
+      const button = el("button", "choice");
+      button.type = "button";
+      button.append(el("span", "choice-title", title));
+      if (detail) button.append(el("span", "choice-detail", detail));
+      button.addEventListener("click", onpick);
+      return button;
+    }
+
+    function backButton() {
+      const button = el("button", "back", "返回");
+      button.type = "button";
+      button.addEventListener("click", function () {
+        if (state.busy || state.step === 0) return;
+        state.step -= 1;
+        render();
+      });
+      return button;
+    }
+
+    function staffForService() {
+      const links = state.catalog.links.filter(function (link) {
+        return link.service_id === state.service.id;
+      });
+      const ids = {};
+      links.forEach(function (link) { ids[link.staff_id] = true; });
+      return state.catalog.staff.filter(function (person) { return ids[person.id]; });
+    }
+
+    function render() {
+      const id = ++renderId;
+      showError("");
+      paintSteps();
+      studioEl.textContent = state.catalog ? state.catalog.studio_name : "預約";
+      document.title = studioEl.textContent + " · 預約";
+      panel.replaceChildren();
+      if (state.step > 0) panel.append(backButton());
+      panel.append(el("h2", "summary", titles[state.step]));
+      if (state.step === 0) renderServices();
+      else if (state.step === 1) renderStaff();
+      else if (state.step === 2) renderDates(id);
+      else if (state.step === 3) renderSlots(id);
+      else renderForm();
+    }
+
+    function renderServices() {
+      const services = state.catalog.services;
+      if (!services.length) {
+        panel.append(el("p", "note", "暫時未有服務，請直接問店主。"));
+        return;
+      }
+      services.forEach(function (service) {
+        panel.append(choice(service.name, service.description, function () {
+          state.service = service;
+          state.staff = "any";
+          state.date = null;
+          state.start = null;
+          state.step = 1;
+          render();
+        }));
+      });
+    }
+
+    function renderStaff() {
+      panel.append(choice("任何技師", "由店舖安排", function () {
+        state.staff = "any";
+        state.step = 2;
+        render();
+      }));
+      staffForService().forEach(function (person) {
+        panel.append(choice(person.name, "", function () {
+          state.staff = person.id;
+          state.step = 2;
+          render();
+        }));
+      });
+    }
+
+    async function renderDates(id) {
+      panel.append(el("p", "status", "讀緊日子…"));
+      try {
+        const data = await post({ action: "dates", service_id: state.service.id, staff_id: state.staff });
+        if (id !== renderId) return;
+        const status = panel.querySelector(".status");
+        if (status) status.remove();
+        if (!data.dates.length) {
+          panel.append(el("p", "note", data.empty || "未來 14 日都冇空檔，可以揀第二個技師試下"));
+          return;
+        }
+        data.dates.forEach(function (day) {
+          panel.append(choice(day.title, day.free_slots + " 個空檔", function () {
+            state.date = day.id;
+            state.step = 3;
+            render();
+          }));
+        });
+      } catch (error) {
+        if (id !== renderId) return;
+        const status = panel.querySelector(".status");
+        if (status) status.remove();
+        showError(error.message || "請再試一次");
+      }
+    }
+
+    async function renderSlots(id) {
+      panel.append(el("p", "status", "讀緊時間…"));
+      try {
+        const data = await post({
+          action: "slots",
+          service_id: state.service.id,
+          staff_id: state.staff,
+          date: state.date,
+        });
+        if (id !== renderId) return;
+        const status = panel.querySelector(".status");
+        if (status) status.remove();
+        if (!data.times.length) {
+          panel.append(el("p", "note", data.empty || "呢一日冇空檔，請揀另一日"));
+          return;
+        }
+        const grid = el("div", "times");
+        data.times.forEach(function (slot) {
+          const button = el("button", "time", slot.title);
+          button.type = "button";
+          button.addEventListener("click", function () {
+            state.start = slot.start_at;
+            state.step = 4;
+            render();
+          });
+          grid.append(button);
+        });
+        panel.append(grid);
+      } catch (error) {
+        if (id !== renderId) return;
+        const status = panel.querySelector(".status");
+        if (status) status.remove();
+        showError(error.message || "請再試一次");
+      }
+    }
+
+    function renderForm() {
+      const picked = state.catalog.staff.find(function (person) { return person.id === state.staff; });
+      panel.append(el("p", "note", state.service.name + " · " + (picked ? picked.name : "任何技師")));
+      const name = el("input");
+      name.type = "text";
+      name.maxLength = 50;
+      name.autocomplete = "name";
+      name.placeholder = "點稱呼你";
+      const phone = el("input");
+      phone.type = "tel";
+      phone.inputMode = "tel";
+      phone.autocomplete = "tel";
+      phone.placeholder = "電話，例如 9123 4567";
+      const consent = el("input");
+      consent.type = "checkbox";
+      const privacy = el("a", "", "私隱政策");
+      const privacyUrl = /^https:\/\/[^\s]+$/.test(state.catalog.privacy_url || "") ? state.catalog.privacy_url : FALLBACK_PRIVACY;
+      privacy.href = privacyUrl;
+      privacy.target = "_blank";
+      privacy.rel = "noopener noreferrer";
+      const consentLabel = el("label", "consent");
+      consentLabel.append(consent, document.createTextNode("我同意用我嘅名稱同電話做呢個預約，並已睇過"), privacy);
+      const submit = el("button", "primary", "保留時段");
+      submit.type = "button";
+      panel.append(el("label", "", "名稱"), name, el("label", "", "電話"), phone, consentLabel);
+      panel.append(el("p", "note", state.catalog.hold_note));
+      panel.append(submit);
+      submit.addEventListener("click", function () {
+        if (state.busy) return;
+        const trimmed = name.value.trim();
+        if (trimmed.length < 1 || trimmed.length > 50) {
+          showError("請填你嘅稱呼");
+          return;
+        }
+        if (phone.value.replace(/\D/g, "").length < 8) {
+          showError("請填有效電話號碼");
+          return;
+        }
+        if (!consent.checked) {
+          showError("請先同意用你嘅資料做預約");
+          return;
+        }
+        state.busy = true;
+        submit.disabled = true;
+        submit.textContent = "保留緊…";
+        showError("");
+        post({
+          action: "hold",
+          service_id: state.service.id,
+          staff_id: state.staff,
+          start_at: state.start,
+          name: trimmed,
+          phone: phone.value,
+          consent: true,
+        }).then(showDone).catch(function (error) {
+          state.busy = false;
+          submit.disabled = false;
+          submit.textContent = "保留時段";
+          showError(error.message || "請再試一次");
+        });
+      });
+    }
+
+    function isSignedQr(url) {
+      return typeof url === "string" &&
+        url.startsWith("https://zestnbliczkknlilwpys.supabase.co/") &&
+        url.indexOf("/object/sign/") !== -1;
+    }
+
+    function isPayme(url) {
+      return typeof url === "string" && /^https:\/\/payme\.hsbc\/[A-Za-z0-9_-]+$/.test(url);
+    }
+
+    function showDone(data) {
+      stepsEl.replaceChildren();
+      panel.replaceChildren();
+      panel.append(el("p", "hold", data.hold_line || "已保留"));
+      panel.append(el("p", "summary", (data.service || "") + " · " + (data.staff || "")));
+      panel.append(el("p", "summary", data.when || ""));
+      const payments = Array.isArray(data.payments) ? data.payments : [];
+      if (payments.length && Number.isFinite(data.deposit_hkd)) {
+        panel.append(el("p", "amount", "訂金 $" + data.deposit_hkd));
+        payments.forEach(function (pay) {
+          const block = el("section", "pay");
+          block.append(el("h2", "", pay.label || "付款"));
+          if (pay.account_name) block.append(el("p", "account", pay.account_name));
+          if (isSignedQr(pay.qr_url)) {
+            const image = el("img", "qr");
+            image.alt = (pay.label || "付款") + " QR";
+            image.src = pay.qr_url;
+            block.append(image);
+          }
+          if (isPayme(pay.payme_link)) {
+            const link = el("a", "payme", "開啟 PayMe");
+            link.href = pay.payme_link;
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            block.append(link);
+          }
+          panel.append(block);
+        });
+      }
+      const again = el("button", "ghost", "再預約");
+      again.type = "button";
+      again.addEventListener("click", function () { location.reload(); });
+      panel.append(again);
+    }
+
+    paintSteps();
+    post({ action: "catalog" }).then(function (data) {
+      state.catalog = data;
+      render();
+    }).catch(function (error) {
+      panel.replaceChildren();
+      showError(error.message || "請再試一次");
+    });
+  </script>
+  <noscript><p>請開啟瀏覽器的 JavaScript 先可以預約。</p></noscript>
+</body>
+</html>
